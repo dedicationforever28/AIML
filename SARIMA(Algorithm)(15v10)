@@ -1,0 +1,43 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+# Load dataset
+df = pd.read_csv("C:/Users/dhyey/OneDrive/Desktop/15 Years (Surat).csv")
+df.columns = ['ds', 'y']  # Rename to Prophet-style for clarity
+df['ds'] = pd.to_datetime(df['ds'])
+df.set_index('ds', inplace=True)
+
+# Resample to monthly average if data is daily (to reduce noise & faster training)
+df = df.resample('M').mean()
+
+# Fit SARIMA model (you can tune the (p,d,q)(P,D,Q,s) hyperparameters)
+model = SARIMAX(df['y'], order=(1, 1, 1), seasonal_order=(1, 1, 1, 12))
+results = model.fit()
+
+# Forecast next 10 years (10 * 12 months = 120 steps)
+forecast_steps = 120
+forecast = results.get_forecast(steps=forecast_steps)
+forecast_df = forecast.summary_frame()
+
+# Create date index for forecast
+forecast_df['ds'] = pd.date_range(start=df.index[-1] + pd.offsets.MonthBegin(), periods=forecast_steps, freq='M')
+
+# Save forecast to Excel
+export_df = forecast_df[['ds', 'mean', 'mean_ci_lower', 'mean_ci_upper']]
+export_df.to_excel("SARIMA_WindSpeed_10YearForecast.xlsx", index=False)
+print("✅ Excel saved: SARIMA_WindSpeed_10YearForecast.xlsx")
+
+# Plot
+plt.figure(figsize=(14, 6))
+plt.plot(df.index, df['y'], label='Historical Wind Speed')
+plt.plot(export_df['ds'], export_df['mean'], label='Forecast', color='red')
+plt.fill_between(export_df['ds'], export_df['mean_ci_lower'], export_df['mean_ci_upper'], color='pink', alpha=0.3)
+plt.title("Wind Speed Forecast (SARIMA) - Next 10 Years")
+plt.xlabel("Date")
+plt.ylabel("Wind Speed")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.savefig("SARIMA_WindSpeed_10YearForecast.png", dpi=300)
+plt.show()

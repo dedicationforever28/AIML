@@ -1,0 +1,33 @@
+# wind_speed_forecast.py
+
+import pandas as pd
+from datetime import datetime, timedelta
+from prophet import Prophet
+import matplotlib.pyplot as plt
+
+# === Step 1: Load Data ===
+file_path = '15 Years (Surat).csv'  # Ensure this file is in the same directory
+df = pd.read_csv(file_path)
+
+# === Step 2: Clean and Prepare Data ===
+df.columns = ['timestamp_id', 'wind_speed']  # Rename columns
+start_date = datetime(2005, 1, 1)
+df['ds'] = [start_date + timedelta(hours=i) for i in range(len(df))]  # Create datetime column
+df['y'] = pd.to_numeric(df['wind_speed'], errors='coerce')  # Convert wind_speed to numeric
+df = df[['ds', 'y']].dropna()  # Keep only the necessary columns and drop NaNs
+
+# === Step 3: Fit Prophet Model ===
+model = Prophet()
+model.fit(df)
+
+# === Step 4: Make Future Predictions ===
+future = model.make_future_dataframe(periods=87660, freq='h')  # 10 years of hourly data
+forecast = model.predict(future)
+
+# === Step 5: Plot the Results ===
+model.plot(forecast)
+plt.title("Wind Speed Forecast for Next 10 Years")
+plt.xlabel("Date")
+plt.ylabel("Wind Speed (m/s)")
+plt.tight_layout()
+plt.show()
