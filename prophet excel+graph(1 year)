@@ -1,0 +1,125 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from prophet import Prophet
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import math
+import os
+
+# ---------------------------
+# 1. Load the data
+# ---------------------------
+csv_file = '1 Year (Surat).csv'  # Change this if needed
+data = pd.read_csv(csv_file)
+
+print("CSV Columns Detected:", data.columns.tolist())
+
+# Auto-detect wind speed column
+wind_col = None
+for col in data.columns:
+    if 'wind' in col.lower():
+        wind_col = col
+        break
+
+if wind_col is None:
+    raise ValueError("No wind speed column found. Please check your CSV headers.")
+
+wind_speed = data[wind_col].values
+print(f"Using column '{wind_col}' as wind speed data.")
+print(f"Loaded {len(wind_speed)} records.")
+
+# ---------------------------
+# 2. Prepare Data for Prophet
+# ---------------------------
+if 'Timestamp' not in data.columns:
+    start_date = '2024-01-01 00:00:00'
+    data['Timestamp'] = pd.date_range(start=start_date, periods=len(wind_speed), freq='h')
+
+prophet_df = pd.DataFrame({
+    'ds': data['Timestamp'],
+    'y': wind_speed
+})
+
+# ---------------------------
+# 3. Train Prophet Model
+# ---------------------------
+model = Prophet(yearly_seasonality=True, daily_seasonality=True, weekly_seasonality=True)
+model.fit(prophet_df)
+
+# ---------------------------
+# 4. Predict on Current Data
+# ---------------------------
+future_current = prophet_df[['ds']]  # Use the same timestamps
+forecast_current = model.predict(future_current)
+y_pred = forecast_current['yhat'].values
+absolute_errors = np.abs(wind_speed - y_pred)
+
+# ---------------------------
+# 5. Predict for Next 1 Year (8760 hours)
+# ---------------------------
+future_hours = 365 * 24
+future = model.make_future_dataframe(periods=future_hours, freq='h')
+forecast_future = model.predict(future)
+
+future_predictions = forecast_future['yhat'].values[-future_hours:]
+future_timestamps = forecast_future['ds'].values[-future_hours:]
+
+# ---------------------------
+# 6. Model Metrics
+# ---------------------------
+rmse = math.sqrt(mean_squared_error(wind_speed, y_pred))
+mae = mean_absolute_error(wind_speed, y_pred)
+r2 = r2_score(wind_speed, y_pred)
+
+print(f"Model Performance: RMSE={rmse:.3f}, MAE={mae:.3f}, R²={r2:.3f}")
+
+# ---------------------------
+# 7. Plot Graph
+# ---------------------------
+plt.figure(figsize=(12, 6))
+plt.plot(data['Timestamp'], wind_speed, label='Original Data')
+plt.plot(data['Timestamp'], y_pred, label='Prophet Prediction', color='red')
+plt.plot(future_timestamps, future_predictions, label='Future Prediction', color='green')
+plt.xlabel('Time')
+plt.ylabel('Wind Speed (m/s)')
+plt.title('Wind Speed Prediction (Prophet)')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+
+graph_file = os.path.join(os.getcwd(), 'wind_speed_prediction_prophet_graph.png')
+plt.savefig(graph_file, dpi=300)
+plt.close()
+print(f"Graph saved as {graph_file}")
+
+# ---------------------------
+# 8. Create DataFrames for Excel
+# ---------------------------
+actual_vs_pred_df = pd.DataFrame({
+    'Timestamp': data['Timestamp'],
+    'Actual Wind Speed (m/s)': wind_speed,
+    'Predicted Wind Speed (m/s)': y_pred,
+    'Absolute Error (m/s)': absolute_errors
+})
+
+future_df = pd.DataFrame({
+    'Timestamp': future_timestamps,
+    'Predicted Wind Speed (m/s)': future_predictions
+})
+
+metrics_df = pd.DataFrame({
+    'Metric': ['RMSE', 'MAE', 'R²'],
+    'Value': [rmse, mae, r2]
+})
+
+# ---------------------------
+# 9. Save to Excel with 3 Sheets
+# ---------------------------
+excel_file = os.path.join(os.getcwd(), "WindSpeed_Predictions_Prophet.xlsx")
+with pd.ExcelWriter(excel_file) as writer:
+    actual_vs_pred_df.to_excel(writer, sheet_name='Actual_vs_Predicted', index=False)
+    future_df.to_excel(writer, sheet_name='Future_Predictions', index=False)
+    metrics_df.to_excel(writer, sheet_name='Model_Metrics', index=False)
+
+print(f"✅ Excel file created: {excel_file}")
+print("   Sheets: 'Actual_vs_Predicted', 'Future_Predictions', 'Model_Metrics'")

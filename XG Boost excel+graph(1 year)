@@ -1,0 +1,124 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from xgboost import XGBRegressor
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import math
+import os
+
+# ---------------------------
+# 1. Load the data
+# ---------------------------
+csv_file = '1 Year (Surat).csv'  # Change if your CSV file has a different name
+data = pd.read_csv(csv_file)
+
+print("CSV Columns Detected:", data.columns.tolist())
+
+# Auto-detect wind speed column
+wind_col = None
+for col in data.columns:
+    if 'wind' in col.lower():
+        wind_col = col
+        break
+
+if wind_col is None:
+    raise ValueError("No wind speed column found. Please check your CSV headers.")
+
+wind_speed = data[wind_col].values
+print(f"Using column '{wind_col}' as wind speed data.")
+print(f"Loaded {len(wind_speed)} records.")
+
+# ---------------------------
+# 2. Create Timestamp Column (if missing)
+# ---------------------------
+if 'Timestamp' not in data.columns:
+    start_date = '2024-01-01 00:00:00'
+    data['Timestamp'] = pd.date_range(start=start_date, periods=len(wind_speed), freq='h')
+
+# ---------------------------
+# 3. Prepare Dataset
+# ---------------------------
+X = np.arange(len(wind_speed)).reshape(-1, 1)
+y = wind_speed
+
+# ---------------------------
+# 4. Train XGBoost Model
+# ---------------------------
+model = XGBRegressor(n_estimators=300, learning_rate=0.05, max_depth=5, random_state=42)
+model.fit(X, y)
+
+# ---------------------------
+# 5. Predict on Current Data
+# ---------------------------
+y_pred = model.predict(X)
+absolute_errors = np.abs(y - y_pred)
+
+# ---------------------------
+# 6. Predict for Next 1 Year (8760 hours)
+# ---------------------------
+future_hours = 365 * 24
+X_future = np.arange(len(wind_speed), len(wind_speed) + future_hours).reshape(-1, 1)
+future_predictions = model.predict(X_future)
+
+future_timestamps = pd.date_range(start=data['Timestamp'].iloc[-1] + pd.Timedelta(hours=1),
+                                  periods=future_hours, freq='h')
+
+# ---------------------------
+# 7. Model Metrics
+# ---------------------------
+rmse = math.sqrt(mean_squared_error(y, y_pred))
+mae = mean_absolute_error(y, y_pred)
+r2 = r2_score(y, y_pred)
+
+print(f"Model Performance: RMSE={rmse:.3f}, MAE={mae:.3f}, R²={r2:.3f}")
+
+# ---------------------------
+# 8. Plot Graph
+# ---------------------------
+plt.figure(figsize=(12, 6))
+plt.plot(data['Timestamp'], y, label='Original Data')
+plt.plot(data['Timestamp'], y_pred, label='XGBoost Prediction', color='red')
+plt.plot(future_timestamps, future_predictions, label='Future Prediction', color='green')
+plt.xlabel('Time')
+plt.ylabel('Wind Speed (m/s)')
+plt.title('Wind Speed Prediction (XGBoost)')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+
+graph_file = os.path.join(os.getcwd(), 'wind_speed_prediction_xgboost_graph.png')
+plt.savefig(graph_file, dpi=300)
+plt.close()
+print(f"Graph saved as {graph_file}")
+
+# ---------------------------
+# 9. Create DataFrames for Excel
+# ---------------------------
+actual_vs_pred_df = pd.DataFrame({
+    'Timestamp': data['Timestamp'],
+    'Actual Wind Speed (m/s)': y.flatten(),
+    'Predicted Wind Speed (m/s)': y_pred.flatten(),
+    'Absolute Error (m/s)': absolute_errors
+})
+
+future_df = pd.DataFrame({
+    'Timestamp': future_timestamps,
+    'Predicted Wind Speed (m/s)': future_predictions
+})
+
+metrics_df = pd.DataFrame({
+    'Metric': ['RMSE', 'MAE', 'R²'],
+    'Value': [rmse, mae, r2]
+})
+
+# ---------------------------
+# 10. Save to Excel with 3 Sheets
+# ---------------------------
+excel_file = os.path.join(os.getcwd(), "WindSpeed_Predictions_XGBoost.xlsx")
+with pd.ExcelWriter(excel_file) as writer:
+    actual_vs_pred_df.to_excel(writer, sheet_name='Actual_vs_Predicted', index=False)
+    future_df.to_excel(writer, sheet_name='Future_Predictions', index=False)
+    metrics_df.to_excel(writer, sheet_name='Model_Metrics', index=False)
+
+print(f"✅ Excel file created: {excel_file}")
+print("   Sheets: 'Actual_vs_Predicted', 'Future_Predictions', 'Model_Metrics'")

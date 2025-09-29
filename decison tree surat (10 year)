@@ -1,0 +1,121 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+import math
+import os
+
+# ---------------------------
+# 1. Load CSV Data
+# ---------------------------
+file_path = "10 Years (Surat).csv"  # Your uploaded file
+data = pd.read_csv(file_path)
+
+print("Columns Detected:", data.columns.tolist())
+
+# ---------------------------
+# 2. Identify Columns
+# ---------------------------
+time_col = 'Time stamp'
+target_col = 'Weather file wind speed | (m/s)'
+
+if time_col not in data.columns or target_col not in data.columns:
+    raise ValueError(f"Required columns '{time_col}' or '{target_col}' not found in CSV.")
+
+# Convert 'Time stamp' to datetime
+data[time_col] = pd.to_datetime(data[time_col], errors='coerce')
+if data[time_col].isnull().any():
+    raise ValueError("Some timestamps could not be parsed. Please check your 'Time stamp' column.")
+
+data = data.sort_values(by=time_col).reset_index(drop=True)
+
+y_values = data[target_col].values
+print(f"Using column '{target_col}' as target data.")
+print(f"Loaded {len(y_values)} records.")
+
+# ---------------------------
+# 3. Prepare Dataset
+# ---------------------------
+X = np.arange(len(y_values)).reshape(-1, 1)
+y = y_values
+
+# ---------------------------
+# 4. Train Decision Tree Model
+# ---------------------------
+model = DecisionTreeRegressor(max_depth=8, random_state=42)
+model.fit(X, y)
+
+# ---------------------------
+# 5. Predict on Current Data
+# ---------------------------
+y_pred = model.predict(X)
+absolute_errors = np.abs(y - y_pred)
+
+# ---------------------------
+# 6. Predict Next 10 Years
+# ---------------------------
+future_hours = 10 * 365 * 24  # 10 years hourly prediction
+X_future = np.arange(len(y_values), len(y_values) + future_hours).reshape(-1, 1)
+future_predictions = model.predict(X_future)
+
+future_timestamps = pd.date_range(
+    start=data[time_col].iloc[-1] + pd.Timedelta(hours=1),
+    periods=future_hours,
+    freq='H'
+)
+
+# ---------------------------
+# 7. Model Metrics
+# ---------------------------
+rmse = math.sqrt(mean_squared_error(y, y_pred))
+mae = mean_absolute_error(y, y_pred)
+r2 = r2_score(y, y_pred)
+print(f"Model Performance: RMSE={rmse:.3f}, MAE={mae:.3f}, R²={r2:.3f}")
+
+# ---------------------------
+# 8. Plot Graph
+# ---------------------------
+plt.figure(figsize=(14, 6))
+plt.plot(data[time_col], y, label='Actual Wind Speed')
+plt.plot(data[time_col], y_pred, label='Decision Tree Prediction', color='red')
+plt.plot(future_timestamps[:2000], future_predictions[:2000], label='Future Prediction (First 2000 hours)', color='green')
+plt.xlabel('Time')
+plt.ylabel('Wind Speed (m/s)')
+plt.title('Wind Speed Prediction using Decision Tree')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+
+graph_file = os.path.join(os.getcwd(), 'wind_speed_prediction_decision_tree_graph.png')
+plt.savefig(graph_file, dpi=300)
+plt.close()
+print(f"Graph saved as {graph_file}")
+
+# ---------------------------
+# 9. Save to Excel
+# ---------------------------
+actual_vs_pred_df = pd.DataFrame({
+    'Timestamp': data[time_col],
+    'Actual Wind Speed (m/s)': y.flatten(),
+    'Predicted Wind Speed (m/s)': y_pred.flatten(),
+    'Absolute Error': absolute_errors
+})
+
+future_df = pd.DataFrame({
+    'Timestamp': future_timestamps,
+    'Predicted Wind Speed (m/s)': future_predictions
+})
+
+metrics_df = pd.DataFrame({
+    'Metric': ['RMSE', 'MAE', 'R²'],
+    'Value': [rmse, mae, r2]
+})
+
+excel_file = os.path.join(os.getcwd(), "WindSpeed_Predictions_DecisionTree.xlsx")
+with pd.ExcelWriter(excel_file) as writer:
+    actual_vs_pred_df.to_excel(writer, sheet_name='Actual_vs_Predicted', index=False)
+    future_df.to_excel(writer, sheet_name='Future_Predictions', index=False)
+    metrics_df.to_excel(writer, sheet_name='Model_Metrics', index=False)
+
+print(f"✅ Excel file created: {excel_file}")
